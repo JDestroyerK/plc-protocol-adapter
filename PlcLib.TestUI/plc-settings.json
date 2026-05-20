@@ -1,0 +1,112 @@
+{
+  "PlcClient": {
+    "No": 1,
+    "Name": "PLC1",
+    "Enabled": true,
+    "Provider": "Virtual",
+    "Poll": {
+      "Enabled": true,
+      "PollMs": 100,
+      "ReconnMs": 1000,
+      "HbKey": null,
+      "HbMs": 5000
+    },
+    "McpX": {
+      "Ip": "192.168.0.1",
+      "Port": 5000,
+      "Password": "",
+      "IsAscii": false,
+      "IsUdp": false,
+      "RequestFrame": "E3",
+      "TimeoutMs": 5000
+    },
+    "MxComponent": {
+      "LogicalStationNo": 1,
+      "Password": ""
+    },
+    "S7": {
+      "CpuType": "S71200",
+      "Ip": "192.168.0.1",
+      "Rack": 0,
+      "Slot": 1,
+      "TimeoutMs": 5000
+    },
+    "Modbus": {
+      "Mode": "Tcp",
+      "Ip": "192.168.0.1",
+      "Port": 502,
+      "SlaveId": 1,
+      "PortName": "COM1",
+      "BaudRate": 9600,
+      "TimeoutMs": 1000
+    }
+  },
+  "PlcItems": [
+    {
+      "Category": "monitor",
+      "No": 1,
+      "Key": "bool1",
+      "Name": "비트 M0",
+      "Address": "M0",
+      "Type": "Bool",
+      "Writable": true,
+      "Scale": 1.0,
+      "Description": "Bool 테스트"
+    },
+    {
+      "Category": "monitor",
+      "No": 2,
+      "Key": "d100",
+      "Name": "데이터 D100",
+      "Address": "D100",
+      "Type": "Int16",
+      "Writable": true,
+      "Scale": 1.0,
+      "Description": "Int16 테스트"
+    },
+    {
+      "Category": "monitor",
+      "No": 3,
+      "Key": "d102",
+      "Name": "데이터 D102",
+      "Address": "D102",
+      "Type": "UInt16",
+      "Writable": false,
+      "Scale": 1.0,
+      "Description": "UInt16 읽기 전용"
+    },
+    {
+      "Category": "monitor",
+      "No": 4,
+      "Key": "d200",
+      "Name": "32비트 D200",
+      "Address": "D200",
+      "Type": "Int32",
+      "Writable": true,
+      "Scale": 1.0,
+      "Description": "Int32 테스트"
+    },
+    {
+      "Category": "monitor",
+      "No": 5,
+      "Key": "d300",
+      "Name": "실수 D300",
+      "Address": "D300",
+      "Type": "Float",
+      "Writable": true,
+      "Scale": 1.0,
+      "Description": "Float 테스트"
+    },
+    {
+      "Category": "monitor",
+      "No": 6,
+      "Key": "wordbit",
+      "Name": "WordBit D100.3",
+      "Address": "D100.3",
+      "Type": "Bool",
+      "Writable": true,
+      "Scale": 1.0,
+      "Description": "워드 비트 추출 테스트"
+    }
+  ]
+}
