@@ -1,22 +1,30 @@
 using System.Globalization;
-using ActUtlType64Lib;
 using PlcLib.Abstractions;
 using PlcLib.Options;
 
 namespace PlcLib.Clients;
 
 /// <summary>
-/// 미쯔비시 MX Component(ActUtlType64) COM 기반 클라이언트입니다.
+/// 미쯔비시 MX Component COM 기반 클라이언트입니다.
 /// MX Component 소프트웨어와 논리 스테이션 번호 설정이 필요합니다.
 /// 주소 형식: "D100", "M10" 등 Mitsubishi 디바이스 주소
+///
+/// x86 빌드: ActUtlType  (MX Component v4, ProgID: ActUtlType.ActUtlType)
+/// x64 빌드: ActUtlType64 (MX Component v5+) 으로 전환 시
+///   1. PlcLib.csproj PlatformTarget → x64
+///   2. PlcLib.TestUI.csproj PlatformTarget → x64
+///   3. ProgId 상수를 "ActUtlType64.ActUtlType64" 으로 변경
 /// </summary>
 public sealed class MxCompPlcClient : IPlcClient
 {
+    // x64 전환 시 "ActUtlType64.ActUtlType64" 으로 변경
+    private const string ProgId = "ActUtlType.ActUtlType";
+
     private static readonly PlcProfile ProviderProfile =
         new PlcProfile(960, 3584, 96, 384);
 
-    private readonly object           _sync = new object();
-    private readonly ActUtlType64Class _client;
+    private readonly object  _sync = new object();
+    private readonly dynamic _client;
     private bool _disposed;
 
     public MxCompPlcClient(string deviceName, MxCompOpt opt)
@@ -25,12 +33,15 @@ public sealed class MxCompPlcClient : IPlcClient
         if (opt.LogicalStationNo < 0)
             throw new ArgumentOutOfRangeException(nameof(opt), "LogicalStationNo는 0 이상이어야 합니다.");
 
-        Name    = string.IsNullOrWhiteSpace(deviceName) ? "MxComponent" : deviceName;
-        _client = new ActUtlType64Class
-        {
-            ActLogicalStationNumber = opt.LogicalStationNo,
-            ActPassword             = opt.Password ?? string.Empty
-        };
+        Name = string.IsNullOrWhiteSpace(deviceName) ? "MxComponent" : deviceName;
+
+        var type = Type.GetTypeFromProgID(ProgId)
+            ?? throw new InvalidOperationException(
+                $"MX Component가 등록되지 않았습니다 (ProgID: {ProgId}). MX Component를 설치하세요.");
+        _client = Activator.CreateInstance(type)!;
+        _client.ActLogicalStationNumber = opt.LogicalStationNo;
+        _client.ActPassword             = opt.Password ?? string.Empty;
+
         PlcLog.Info(nameof(MxCompPlcClient), $"[{Name}] initialized.");
     }
 
@@ -41,7 +52,7 @@ public sealed class MxCompPlcClient : IPlcClient
 
     public void Connect()
     {
-        lock (_sync) { ThrowIfDisposed(); Check(_client.Open(), "Open"); IsConnected = true; }
+        lock (_sync) { ThrowIfDisposed(); Check((int)_client.Open(), "Open"); IsConnected = true; }
         PlcLog.Info(nameof(MxCompPlcClient), $"[{Name}] connected.");
     }
 
@@ -50,7 +61,7 @@ public sealed class MxCompPlcClient : IPlcClient
         lock (_sync)
         {
             if (_disposed) return;
-            if (IsConnected) Check(_client.Close(), "Close");
+            if (IsConnected) Check((int)_client.Close(), "Close");
             IsConnected = false;
         }
         PlcLog.Info(nameof(MxCompPlcClient), $"[{Name}] disconnected.");
@@ -125,18 +136,20 @@ public sealed class MxCompPlcClient : IPlcClient
     {
         if (typeof(T) == typeof(bool))
         {
-            Check(_client.GetDevice(device, out int v), "GetDevice");
+            int v = 0;
+            Check((int)_client.GetDevice(device, ref v), "GetDevice");
             return (T)(object)(v != 0);
         }
         if (typeof(T) == typeof(short) || typeof(T) == typeof(ushort))
         {
-            Check(_client.GetDevice2(device, out short v), "GetDevice2");
+            short v = 0;
+            Check((int)_client.GetDevice2(device, ref v), "GetDevice2");
             return typeof(T) == typeof(short) ? (T)(object)v : (T)(object)(ushort)v;
         }
         if (typeof(T) == typeof(int) || typeof(T) == typeof(uint) || typeof(T) == typeof(float))
         {
             var words = new short[2];
-            Check(_client.ReadDeviceBlock2(device, 2, out words[0]), "ReadDeviceBlock2");
+            Check((int)_client.ReadDeviceBlock2(device, 2, ref words[0]), "ReadDeviceBlock2");
             var combined = (uint)((ushort)words[0]) | ((uint)((ushort)words[1]) << 16);
             if (typeof(T) == typeof(int))   return (T)(object)unchecked((int)combined);
             if (typeof(T) == typeof(uint))  return (T)(object)combined;
@@ -147,16 +160,16 @@ public sealed class MxCompPlcClient : IPlcClient
 
     private void WriteCore<T>(string device, T value) where T : unmanaged
     {
-        if (typeof(T) == typeof(bool))  { Check(_client.SetDevice(device, (bool)(object)value ? 1 : 0), "SetDevice"); return; }
-        if (typeof(T) == typeof(short)) { Check(_client.SetDevice2(device, (short)(object)value), "SetDevice2"); return; }
-        if (typeof(T) == typeof(ushort)){ Check(_client.SetDevice2(device, unchecked((short)(ushort)(object)value)), "SetDevice2"); return; }
+        if (typeof(T) == typeof(bool))  { Check((int)_client.SetDevice(device, (bool)(object)value ? 1 : 0), "SetDevice"); return; }
+        if (typeof(T) == typeof(short)) { Check((int)_client.SetDevice2(device, (short)(object)value), "SetDevice2"); return; }
+        if (typeof(T) == typeof(ushort)){ Check((int)_client.SetDevice2(device, unchecked((short)(ushort)(object)value)), "SetDevice2"); return; }
         if (typeof(T) == typeof(int) || typeof(T) == typeof(uint) || typeof(T) == typeof(float))
         {
             uint bits = typeof(T) == typeof(int)   ? unchecked((uint)(int)(object)value)
                       : typeof(T) == typeof(uint)  ? (uint)(object)value
                       : unchecked((uint)BitConverter.SingleToInt32Bits((float)(object)value));
             var words = new short[] { unchecked((short)(bits & 0xFFFF)), unchecked((short)(bits >> 16)) };
-            Check(_client.WriteDeviceBlock2(device, 2, ref words[0]), "WriteDeviceBlock2");
+            Check((int)_client.WriteDeviceBlock2(device, 2, ref words[0]), "WriteDeviceBlock2");
             return;
         }
         throw new NotSupportedException($"MxComponent Write<{typeof(T).Name}>는 지원하지 않습니다.");
@@ -167,13 +180,13 @@ public sealed class MxCompPlcClient : IPlcClient
         if (typeof(T) == typeof(bool))
         {
             var buf = new int[length];
-            Check(_client.ReadDeviceBlock(startDevice, length, out buf[0]), "ReadDeviceBlock");
+            Check((int)_client.ReadDeviceBlock(startDevice, length, ref buf[0]), "ReadDeviceBlock");
             return (T[])(object)buf.Select(v => v != 0).ToArray();
         }
         if (typeof(T) == typeof(short) || typeof(T) == typeof(ushort))
         {
             var buf = new short[length];
-            Check(_client.ReadDeviceBlock2(startDevice, length, out buf[0]), "ReadDeviceBlock2");
+            Check((int)_client.ReadDeviceBlock2(startDevice, length, ref buf[0]), "ReadDeviceBlock2");
             return typeof(T) == typeof(short)
                 ? (T[])(object)buf
                 : (T[])(object)buf.Select(v => (ushort)v).ToArray();
@@ -181,7 +194,7 @@ public sealed class MxCompPlcClient : IPlcClient
         if (typeof(T) == typeof(int) || typeof(T) == typeof(uint) || typeof(T) == typeof(float))
         {
             var buf = new short[length * 2];
-            Check(_client.ReadDeviceBlock2(startDevice, buf.Length, out buf[0]), "ReadDeviceBlock2");
+            Check((int)_client.ReadDeviceBlock2(startDevice, buf.Length, ref buf[0]), "ReadDeviceBlock2");
             var result = new T[length];
             for (int i = 0; i < length; i++)
             {
@@ -200,7 +213,7 @@ public sealed class MxCompPlcClient : IPlcClient
         if (typeof(T) == typeof(bool))
         {
             var buf = values.Select(v => (bool)(object)v ? 1 : 0).ToArray();
-            Check(_client.WriteDeviceBlock(startDevice, values.Count, ref buf[0]), "WriteDeviceBlock");
+            Check((int)_client.WriteDeviceBlock(startDevice, values.Count, ref buf[0]), "WriteDeviceBlock");
             return;
         }
         if (typeof(T) == typeof(short) || typeof(T) == typeof(ushort))
@@ -208,7 +221,7 @@ public sealed class MxCompPlcClient : IPlcClient
             var buf = values.Select(v => typeof(T) == typeof(short)
                 ? (short)(object)v
                 : unchecked((short)(ushort)(object)v)).ToArray();
-            Check(_client.WriteDeviceBlock2(startDevice, buf.Length, ref buf[0]), "WriteDeviceBlock2");
+            Check((int)_client.WriteDeviceBlock2(startDevice, buf.Length, ref buf[0]), "WriteDeviceBlock2");
             return;
         }
         if (typeof(T) == typeof(int) || typeof(T) == typeof(uint) || typeof(T) == typeof(float))
@@ -222,7 +235,7 @@ public sealed class MxCompPlcClient : IPlcClient
                 buf[i * 2]     = unchecked((short)(bits & 0xFFFF));
                 buf[i * 2 + 1] = unchecked((short)(bits >> 16));
             }
-            Check(_client.WriteDeviceBlock2(startDevice, buf.Length, ref buf[0]), "WriteDeviceBlock2");
+            Check((int)_client.WriteDeviceBlock2(startDevice, buf.Length, ref buf[0]), "WriteDeviceBlock2");
             return;
         }
         throw new NotSupportedException($"MxComponent BlockWrite<{typeof(T).Name}>는 지원하지 않습니다.");

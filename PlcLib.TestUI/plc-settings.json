@@ -12,8 +12,8 @@
       "HbMs": 5000
     },
     "McpX": {
-      "Ip": "192.168.0.1",
-      "Port": 5000,
+      "Ip": "192.168.10.10",
+      "Port": 5007,
       "Password": "",
       "IsAscii": false,
       "IsUdp": false,
@@ -25,8 +25,8 @@
       "Password": ""
     },
     "S7": {
-      "CpuType": "S71200",
-      "Ip": "192.168.0.1",
+      "CpuType": "S71500",
+      "Ip": "192.168.94.11",
       "Rack": 0,
       "Slot": 1,
       "TimeoutMs": 5000
@@ -41,72 +41,48 @@
       "TimeoutMs": 1000
     }
   },
-  "PlcItems": [
-    {
-      "Category": "monitor",
-      "No": 1,
-      "Key": "bool1",
-      "Name": "비트 M0",
-      "Address": "M0",
-      "Type": "Bool",
-      "Writable": true,
-      "Scale": 1.0,
-      "Description": "Bool 테스트"
-    },
-    {
-      "Category": "monitor",
-      "No": 2,
-      "Key": "d100",
-      "Name": "데이터 D100",
-      "Address": "D100",
-      "Type": "Int16",
-      "Writable": true,
-      "Scale": 1.0,
-      "Description": "Int16 테스트"
-    },
-    {
-      "Category": "monitor",
-      "No": 3,
-      "Key": "d102",
-      "Name": "데이터 D102",
-      "Address": "D102",
-      "Type": "UInt16",
-      "Writable": false,
-      "Scale": 1.0,
-      "Description": "UInt16 읽기 전용"
-    },
-    {
-      "Category": "monitor",
-      "No": 4,
-      "Key": "d200",
-      "Name": "32비트 D200",
-      "Address": "D200",
-      "Type": "Int32",
-      "Writable": true,
-      "Scale": 1.0,
-      "Description": "Int32 테스트"
-    },
-    {
-      "Category": "monitor",
-      "No": 5,
-      "Key": "d300",
-      "Name": "실수 D300",
-      "Address": "D300",
-      "Type": "Float",
-      "Writable": true,
-      "Scale": 1.0,
-      "Description": "Float 테스트"
-    },
-    {
-      "Category": "monitor",
-      "No": 6,
-      "Key": "wordbit",
-      "Name": "WordBit D100.3",
-      "Address": "D100.3",
-      "Type": "Bool",
-      "Writable": true,
-      "Scale": 1.0,
-      "Description": "워드 비트 추출 테스트"
-    }
-  ]
+  "PlcItemsByProvider": {
+    "Virtual": [
+      { "Category": "monitor", "No": 1, "Key": "bool1",   "Name": "비트 M0",       "Address": "M0",      "Type": "Bool",   "Writable": true,  "Scale": 1.0, "Description": "Bool 테스트" },
+      { "Category": "monitor", "No": 2, "Key": "d100",    "Name": "데이터 D100",   "Address": "D100",    "Type": "Int16",  "Writable": true,  "Scale": 1.0, "Description": "Int16 테스트" },
+      { "Category": "monitor", "No": 3, "Key": "d102",    "Name": "데이터 D102",   "Address": "D102",    "Type": "UInt16", "Writable": false, "Scale": 1.0, "Description": "UInt16 읽기 전용" },
+      { "Category": "monitor", "No": 4, "Key": "d200",    "Name": "32비트 D200",   "Address": "D200",    "Type": "Int32",  "Writable": true,  "Scale": 1.0, "Description": "Int32 테스트" },
+      { "Category": "monitor", "No": 5, "Key": "d300",    "Name": "실수 D300",     "Address": "D300",    "Type": "Float",  "Writable": true,  "Scale": 1.0, "Description": "Float 테스트" },
+      { "Category": "monitor", "No": 6, "Key": "wordbit", "Name": "WordBit D100.3","Address": "D100.3",  "Type": "Bool",   "Writable": true,  "Scale": 1.0, "Description": "워드 비트 추출 테스트" }
+    ],
+    "McpX": [
+      { "Category": "monitor", "No": 1, "Key": "bool1",   "Name": "비트 M0",       "Address": "M0",      "Type": "Bool",   "Writable": true,  "Scale": 1.0, "Description": "Bool 테스트" },
+      { "Category": "monitor", "No": 2, "Key": "d100",    "Name": "데이터 D100",   "Address": "D100",    "Type": "Int16",  "Writable": true,  "Scale": 1.0, "Description": "Int16 테스트" },
+      { "Category": "monitor", "No": 3, "Key": "d102",    "Name": "데이터 D102",   "Address": "D102",    "Type": "UInt16", "Writable": false, "Scale": 1.0, "Description": "UInt16 읽기 전용" },
+      { "Category": "monitor", "No": 4, "Key": "d200",    "Name": "32비트 D200",   "Address": "D200",    "Type": "Int32",  "Writable": true,  "Scale": 1.0, "Description": "Int32 테스트" },
+      { "Category": "monitor", "No": 5, "Key": "d300",    "Name": "실수 D300",     "Address": "D300",    "Type": "Float",  "Writable": true,  "Scale": 1.0, "Description": "Float 테스트" },
+      { "Category": "monitor", "No": 6, "Key": "wordbit", "Name": "WordBit D100.3","Address": "D100.3",  "Type": "Bool",   "Writable": true,  "Scale": 1.0, "Description": "워드 비트 추출 테스트" }
+    ],
+    "MxComponent": [
+      { "Category": "monitor", "No": 1, "Key": "bool1",   "Name": "비트 M0",       "Address": "M0",      "Type": "Bool",   "Writable": true,  "Scale": 1.0, "Description": "Bool 테스트" },
+      { "Category": "monitor", "No": 2, "Key": "d100",    "Name": "데이터 D100",   "Address": "D100",    "Type": "Int16",  "Writable": true,  "Scale": 1.0, "Description": "Int16 테스트" },
+      { "Category": "monitor", "No": 3, "Key": "d102",    "Name": "데이터 D102",   "Address": "D102",    "Type": "UInt16", "Writable": false, "Scale": 1.0, "Description": "UInt16 읽기 전용" },
+      { "Category": "monitor", "No": 4, "Key": "d200",    "Name": "32비트 D200",   "Address": "D200",    "Type": "Int32",  "Writable": true,  "Scale": 1.0, "Description": "Int32 테스트" },
+      { "Category": "monitor", "No": 5, "Key": "d300",    "Name": "실수 D300",     "Address": "D300",    "Type": "Float",  "Writable": true,  "Scale": 1.0, "Description": "Float 테스트" },
+      { "Category": "monitor", "No": 6, "Key": "wordbit", "Name": "WordBit D100.3","Address": "D100.3",  "Type": "Bool",   "Writable": true,  "Scale": 1.0, "Description": "워드 비트 추출 테스트" }
+    ],
+    "S7": [
+      { "Category": "monitor", "No": 1, "Key": "db200_bit", "Name": "DB200 Bool",      "Address": "DB200.DBX0.0", "Type": "Bool",   "Writable": true,  "Scale": 1.0, "Description": "DB Bool 테스트" },
+      { "Category": "monitor", "No": 2, "Key": "db200_w2",  "Name": "DB200 Word",      "Address": "DB200.DBW2",   "Type": "Int16",  "Writable": true,  "Scale": 1.0, "Description": "DB Int16 테스트" },
+      { "Category": "monitor", "No": 3, "Key": "db200_w4",  "Name": "DB200 UWord",     "Address": "DB200.DBW4",   "Type": "UInt16", "Writable": false, "Scale": 1.0, "Description": "DB UInt16 읽기 전용" },
+      { "Category": "monitor", "No": 4, "Key": "db200_d6",  "Name": "DB200 DWord",     "Address": "DB200.DBD6",   "Type": "Int32",  "Writable": true,  "Scale": 1.0, "Description": "DB Int32 테스트" },
+      { "Category": "monitor", "No": 5, "Key": "db200_d10", "Name": "DB200 Real",      "Address": "DB200.DBD10",  "Type": "Float",  "Writable": true,  "Scale": 1.0, "Description": "DB Float 테스트" },
+      { "Category": "monitor", "No": 6, "Key": "m_bit",   "Name": "M0.0",          "Address": "M0.0",       "Type": "Bool",   "Writable": true,  "Scale": 1.0, "Description": "Memory Bool 테스트" },
+      { "Category": "monitor", "No": 7, "Key": "mw10",    "Name": "MW10",          "Address": "MW10",       "Type": "Int16",  "Writable": true,  "Scale": 1.0, "Description": "Memory Word 테스트" }
+    ],
+    "Modbus": [
+      { "Category": "monitor", "No": 1, "Key": "coil0",   "Name": "Coil 0",        "Address": "C0",     "Type": "Bool",   "Writable": true,  "Scale": 1.0, "Description": "Coil 읽기/쓰기" },
+      { "Category": "monitor", "No": 2, "Key": "di0",     "Name": "DI 0",          "Address": "DI0",    "Type": "Bool",   "Writable": false, "Scale": 1.0, "Description": "Discrete Input 읽기 전용" },
+      { "Category": "monitor", "No": 3, "Key": "hr0",     "Name": "HR 0",          "Address": "HR0",    "Type": "Int16",  "Writable": true,  "Scale": 1.0, "Description": "Holding Register Int16" },
+      { "Category": "monitor", "No": 4, "Key": "hr1",     "Name": "HR 1",          "Address": "HR1",    "Type": "UInt16", "Writable": false, "Scale": 1.0, "Description": "Holding Register UInt16 읽기 전용" },
+      { "Category": "monitor", "No": 5, "Key": "hr2",     "Name": "HR 2-3",        "Address": "HR2",    "Type": "Int32",  "Writable": true,  "Scale": 1.0, "Description": "Holding Register Int32 (2레지스터)" },
+      { "Category": "monitor", "No": 6, "Key": "hr4",     "Name": "HR 4-5",        "Address": "HR4",    "Type": "Float",  "Writable": true,  "Scale": 1.0, "Description": "Holding Register Float (2레지스터)" },
+      { "Category": "monitor", "No": 7, "Key": "ir0",     "Name": "IR 0",          "Address": "IR0",    "Type": "Int16",  "Writable": false, "Scale": 1.0, "Description": "Input Register 읽기 전용" }
+    ]
+  }
 }

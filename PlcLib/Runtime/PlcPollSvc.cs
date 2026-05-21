@@ -405,8 +405,10 @@ public sealed class PlcPollSvc : IDisposable
         if (wordBitItems.Length > 0) ResolveWordBits(wordBitItems);
     }
 
-    private static bool IsWordBitItem(PlcItemOpt item)
-        => item.Type == PlcValueType.Bool && item.Address.Contains('.');
+    private bool IsWordBitItem(PlcItemOpt item)
+        => item.Type == PlcValueType.Bool
+        && item.Address.Contains('.')
+        && _plc.ProviderName != "S7";
 
     // ── WordBit 처리 ──────────────────────────────────────────────────
 
