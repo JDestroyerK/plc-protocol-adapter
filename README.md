@@ -151,7 +151,10 @@ PlcLog.Handler = (level, msg) => myLogger.Log(level, msg);
 ## 빌드 요구 사항
 
 - .NET Standard 2.1 이상을 구현하는 런타임 (.NET 6 / 7 / 8 / 9)
-- MxComponent 사용 시: Mitsubishi MX Component 64비트 설치 필요
+- MxComponent 사용 시: 프로세스 비트니스에 맞는 MX Component 설치 필요
+  - 32비트 프로세스 → MX Component v4 (32비트)
+  - 64비트 프로세스 → MX Component v5 이상 (64비트)
+  - ProgId는 런타임에 프로세스 비트니스 기준으로 자동 선택됨
 
 ## 의존성
 
