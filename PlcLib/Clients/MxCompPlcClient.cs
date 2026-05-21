@@ -9,16 +9,31 @@ namespace PlcLib.Clients;
 /// MX Component 소프트웨어와 논리 스테이션 번호 설정이 필요합니다.
 /// 주소 형식: "D100", "M10" 등 Mitsubishi 디바이스 주소
 ///
-/// x86 빌드: ActUtlType  (MX Component v4, ProgID: ActUtlType.ActUtlType)
-/// x64 빌드: ActUtlType64 (MX Component v5+) 으로 전환 시
-///   1. PlcLib.csproj PlatformTarget → x64
-///   2. PlcLib.TestUI.csproj PlatformTarget → x64
-///   3. ProgId 상수를 "ActUtlType64.ActUtlType64" 으로 변경
+/// 프로세스 비트니스와 설치된 MX Component 버전이 반드시 일치해야 합니다:
+///   x86 프로세스 → MX Component v4 (32비트) 필요
+///   x64 프로세스 → MX Component v5+ (64비트) 필요
+/// ProgId는 현재 프로세스 비트니스와 레지스트리 설치 상태를 기반으로 자동 선택됩니다.
 /// </summary>
 public sealed class MxCompPlcClient : IPlcClient
 {
-    // x64 전환 시 "ActUtlType64.ActUtlType64" 으로 변경
-    private const string ProgId = "ActUtlType.ActUtlType";
+    private const string ProgId32 = "ActUtlType.ActUtlType";
+    private const string ProgId64 = "ActUtlType64.ActUtlType64";
+
+    // 현재 프로세스 비트니스에 맞는 ProgId를 COM 등록 여부로 확인 후 반환
+    private static string ResolveProgId()
+    {
+        string progId = Environment.Is64BitProcess ? ProgId64 : ProgId32;
+        if (Type.GetTypeFromProgID(progId) == null)
+        {
+            string needed = Environment.Is64BitProcess
+                ? "MX Component v5 이상 (64비트)"
+                : "MX Component v4 (32비트)";
+            throw new InvalidOperationException(
+                $"MX Component가 설치되지 않았거나 현재 프로세스({(Environment.Is64BitProcess ? "64" : "32")}비트)와 " +
+                $"버전이 맞지 않습니다. {needed}를 설치하세요. (ProgID: {progId})");
+        }
+        return progId;
+    }
 
     private static readonly PlcProfile ProviderProfile =
         new PlcProfile(960, 3584, 96, 384);
@@ -35,9 +50,9 @@ public sealed class MxCompPlcClient : IPlcClient
 
         Name = string.IsNullOrWhiteSpace(deviceName) ? "MxComponent" : deviceName;
 
-        var type = Type.GetTypeFromProgID(ProgId)
+        var type = Type.GetTypeFromProgID(ResolveProgId())
             ?? throw new InvalidOperationException(
-                $"MX Component가 등록되지 않았습니다 (ProgID: {ProgId}). MX Component를 설치하세요.");
+                $"MX Component COM 타입을 로드할 수 없습니다. MX Component를 재설치하세요.");
         _client = Activator.CreateInstance(type)!;
         _client.ActLogicalStationNumber = opt.LogicalStationNo;
         _client.ActPassword             = opt.Password ?? string.Empty;
