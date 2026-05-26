@@ -298,7 +298,7 @@ partial class MainForm
         // _cboProvider
         // 
         _cboProvider.DropDownStyle = ComboBoxStyle.DropDownList;
-        _cboProvider.Items.AddRange(new object[] { "Virtual", "McpX", "MxComponent", "S7", "Modbus" });
+        _cboProvider.Items.AddRange(new object[] { "Virtual", "McpX", "MxComponent", "S7" });
         _cboProvider.Location = new Point(65, 3);
         _cboProvider.Name = "_cboProvider";
         _cboProvider.Size = new Size(110, 23);
@@ -578,12 +578,12 @@ partial class MainForm
         lblS7Cpu.Name = "lblS7Cpu";
         lblS7Cpu.Size = new Size(57, 15);
         lblS7Cpu.TabIndex = 0;
-        lblS7Cpu.Text = "CpuType:";
+        lblS7Cpu.Text = "ComType:";
         // 
         // _cboS7Cpu
         // 
         _cboS7Cpu.DropDownStyle = ComboBoxStyle.DropDownList;
-        _cboS7Cpu.Items.AddRange(new object[] { "S71200", "S71500", "S7300", "S7400", "Logo0BA8" });
+        _cboS7Cpu.Items.AddRange(new object[] { "Raw", "Sharp7" });
         _cboS7Cpu.Location = new Point(68, 3);
         _cboS7Cpu.Name = "_cboS7Cpu";
         _cboS7Cpu.Size = new Size(90, 23);
@@ -706,7 +706,6 @@ partial class MainForm
         _cboModbusMode.Name = "_cboModbusMode";
         _cboModbusMode.Size = new Size(60, 23);
         _cboModbusMode.TabIndex = 1;
-        _cboModbusMode.SelectedIndexChanged += OnModbusModeChanged;
         // 
         // lblModbusIp
         // 

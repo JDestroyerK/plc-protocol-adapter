@@ -226,15 +226,6 @@ public sealed partial class MainForm : Form
                     item.Type.ToString(), item.Writable, "", "", "", item.Description);
     }
 
-    private void OnModbusModeChanged(object? sender, EventArgs e)
-    {
-        var tcp = _cboModbusMode.SelectedItem?.ToString() == "Tcp";
-        _txtModbusIp.Enabled   = tcp;
-        _numModbusPort.Enabled = tcp;
-        _txtModbusCom.Enabled  = !tcp;
-        _numModbusBaud.Enabled = !tcp;
-    }
-
     private void OnLogClearClick(object? sender, EventArgs e) => _txtLog.Clear();
 
     private void UpdateProviderPanel()
@@ -242,7 +233,6 @@ public sealed partial class MainForm : Form
         var p = _cboProvider.SelectedItem?.ToString() ?? "Virtual";
         _panelMcpX.Visible   = p == "McpX";
         _panelS7.Visible     = p == "S7";
-        _panelModbus.Visible = p == "Modbus";
         _panelMxComp.Visible = p == "MxComponent";
     }
 
@@ -301,18 +291,9 @@ public sealed partial class MainForm : Form
             case "S7":
                 opt.S7 = new S7Opt
                 {
-                    CpuType = _cboS7Cpu.SelectedItem?.ToString() ?? "S71200",
-                    Ip = _txtS7Ip.Text.Trim(), Rack = (short)_numS7Rack.Value,
-                    Slot = (short)_numS7Slot.Value, TimeoutMs = (int)_numS7Timeout.Value,
-                };
-                break;
-            case "Modbus":
-                opt.Modbus = new ModbusOpt
-                {
-                    Mode = _cboModbusMode.SelectedItem?.ToString() ?? "Tcp",
-                    Ip = _txtModbusIp.Text.Trim(), Port = (int)_numModbusPort.Value,
-                    SlaveId = (byte)_numModbusSlaveId.Value, PortName = _txtModbusCom.Text.Trim(),
-                    BaudRate = (int)_numModbusBaud.Value, TimeoutMs = (int)_numModbusTimeout.Value,
+                    ComType = _cboS7Cpu.SelectedItem?.ToString() ?? "Raw",
+                    Ip = _txtS7Ip.Text.Trim(), Rack = (int)_numS7Rack.Value,
+                    Slot = (int)_numS7Slot.Value, TimeoutMs = (int)_numS7Timeout.Value,
                 };
                 break;
             case "MxComponent":
@@ -377,19 +358,10 @@ public sealed partial class MainForm : Form
             }
             if (c.S7 != null)
             {
-                var si = _cboS7Cpu.Items.IndexOf(c.S7.CpuType);
+                var si = _cboS7Cpu.Items.IndexOf(c.S7.ComType);
                 if (si >= 0) _cboS7Cpu.SelectedIndex = si;
                 _txtS7Ip.Text = c.S7.Ip; _numS7Rack.Value = Clamp(c.S7.Rack, 0, 7);
                 _numS7Slot.Value = Clamp(c.S7.Slot, 0, 15); _numS7Timeout.Value = Clamp(c.S7.TimeoutMs, 100, 30000);
-            }
-            if (c.Modbus != null)
-            {
-                var mi = _cboModbusMode.Items.IndexOf(c.Modbus.Mode);
-                if (mi >= 0) _cboModbusMode.SelectedIndex = mi;
-                _txtModbusIp.Text = c.Modbus.Ip; _numModbusPort.Value = Clamp(c.Modbus.Port, 1, 65535);
-                _numModbusSlaveId.Value = Clamp(c.Modbus.SlaveId, 1, 247);
-                _txtModbusCom.Text = c.Modbus.PortName; _numModbusBaud.Value = Clamp(c.Modbus.BaudRate, 1200, 921600);
-                _numModbusTimeout.Value = Clamp(c.Modbus.TimeoutMs, 100, 30000);
             }
             if (c.MxComponent != null)
             {

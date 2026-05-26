@@ -12,8 +12,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
-    <PackageReference Include="S7netplus" Version="0.20.0" />
-    <PackageReference Include="FluentModbus" Version="5.1.0" />
+    <PackageReference Include="Sharp7" Version="1.1.84" />
     <PackageReference Include="McpX" Version="0.6.0" />
   </ItemGroup>
 

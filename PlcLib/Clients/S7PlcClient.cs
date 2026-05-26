@@ -1,70 +1,56 @@
-using System.Text;
 using System.Text.RegularExpressions;
 using PlcLib.Abstractions;
 using PlcLib.Options;
-using S7Net    = S7.Net;
-using S7Item   = S7.Net.Types.DataItem;
 
 namespace PlcLib.Clients;
 
 /// <summary>
-/// 지멘스 S7 프로토콜(S7netplus) 기반 클라이언트입니다.
+/// Siemens S7 클라이언트. S7Opt.ComType에 따라 Raw(직접 구현) 또는 Sharp7 라이브러리를 선택합니다.
 ///
-/// 지원 주소 형식:
-///   Word(16bit) : "DB1.DBW10", "MW10", "IW0", "QW0"
-///   DWord(32bit): "DB1.DBD4",  "MD4"
-///   Bool(bit)   : "DB1.DBX0.0", "M0.0", "I0.1", "Q0.0"
-///   Byte/String : "DB1.DBB10"
-///
-/// PlcPollSvc 연동 시:
-///   - DB/M 주소(DBW, DBD)는 RandomRead(ReadMultipleVars, 최대 19개/배치)로 처리됩니다.
-///   - Bool 주소는 개별 단건 읽기로 처리됩니다.
-///   - S7 특성상 블록 최적화(BlockRead)는 MW/IW/QW 형식의 단순 주소에만 적용됩니다.
+/// 지원 주소 형식 (DB 영역만):
+///   Bool  : "DB1.DBX0.0"
+///   Word  : "DB1.DBW10"
+///   DWord : "DB1.DBD4"
+///   Byte  : "DB1.DBB5"
 /// </summary>
 public sealed class S7PlcClient : IPlcClient
 {
     private const int BatchSize = 19; // S7 PDU 한계
 
-    // S7-1200 기준 보수적 프로파일
-    private static readonly PlcProfile ProviderProfile =
-        new PlcProfile(100, 100, 5, 10);
+    private static readonly PlcProfile ProviderProfile = new PlcProfile(100, 100, 5, 10);
 
-    private readonly object    _sync = new object();
-    private readonly S7Opt     _opt;
-    private S7Net.Plc?         _plc;
+    private readonly object _sync = new object();
+    private readonly IS7Transport _transport;
     private bool _disposed;
 
     public S7PlcClient(string deviceName, S7Opt opt)
     {
         if (opt == null) throw new ArgumentNullException(nameof(opt));
         Name = string.IsNullOrWhiteSpace(deviceName) ? "S7" : deviceName;
-        _opt = opt;
-        PlcLog.Info(nameof(S7PlcClient), $"[{Name}] initialized.");
+        _transport = opt.ComType.Equals("Sharp7", StringComparison.OrdinalIgnoreCase)
+            ? new S7Sharp7Transport(opt)
+            : (IS7Transport)new S7RawTransport(opt);
+        PlcLog.Info(nameof(S7PlcClient), $"[{Name}] initialized. comType={opt.ComType}");
     }
 
     public string     Name         { get; }
     public string     ProviderName => "S7";
     public PlcProfile Profile      => ProviderProfile;
-    public bool       IsConnected  => _plc?.IsConnected ?? false;
+    public bool       IsConnected  => _transport.IsConnected;
 
     // ── 연결 ──────────────────────────────────────────────────────────
 
     public void Connect()
     {
-        lock (_sync)
-        {
-            ThrowIfDisposed();
-            _plc?.Close();
-            if (!Enum.TryParse(_opt.CpuType, out S7Net.CpuType cpu)) cpu = S7Net.CpuType.S71200;
-            _plc = new S7Net.Plc(cpu, _opt.Ip, _opt.Rack, _opt.Slot);
-            _plc.Open();
-        }
-        PlcLog.Info(nameof(S7PlcClient), $"[{Name}] connected. cpu={_opt.CpuType} ip={_opt.Ip}");
+        lock (_sync) ThrowIfDisposed();
+        if (!_transport.Connect())
+            throw new InvalidOperationException($"[{Name}] S7 PLC 연결 실패.");
+        PlcLog.Info(nameof(S7PlcClient), $"[{Name}] connected.");
     }
 
     public void Disconnect()
     {
-        lock (_sync) { if (_disposed) return; _plc?.Close(); _plc = null; }
+        _transport.Disconnect();
         PlcLog.Info(nameof(S7PlcClient), $"[{Name}] disconnected.");
     }
 
@@ -73,11 +59,7 @@ public sealed class S7PlcClient : IPlcClient
     public T Read<T>(string device) where T : unmanaged
     {
         ValidateDevice(device);
-        lock (_sync)
-        {
-            ThrowIfDisposed(); EnsureConnected();
-            return ReadSingle<T>(device);
-        }
+        lock (_sync) { ThrowIfDisposed(); EnsureConnected(); return ReadSingle<T>(device); }
     }
 
     // ── 단건 쓰기 ─────────────────────────────────────────────────────
@@ -85,14 +67,10 @@ public sealed class S7PlcClient : IPlcClient
     public void Write<T>(string device, T value) where T : unmanaged
     {
         ValidateDevice(device);
-        lock (_sync)
-        {
-            ThrowIfDisposed(); EnsureConnected();
-            WriteSingle(device, value);
-        }
+        lock (_sync) { ThrowIfDisposed(); EnsureConnected(); WriteSingle(device, value); }
     }
 
-    // ── 블록 읽기 (연속 주소) ─────────────────────────────────────────
+    // ── 블록 읽기 ─────────────────────────────────────────────────────
 
     public T[] BlockRead<T>(string startDevice, ushort length) where T : unmanaged
     {
@@ -101,17 +79,33 @@ public sealed class S7PlcClient : IPlcClient
         lock (_sync)
         {
             ThrowIfDisposed(); EnsureConnected();
+            ParseAddress(startDevice, out int db, out int byteOff, out int bitIdx);
 
             if (typeof(T) == typeof(bool))
-                return BlockReadBool(startDevice, length) as T[] ?? Array.Empty<T>();
-
-            var (dt, db, byteOffset) = ParseBlockAddress(startDevice);
-            var elemBytes = ElemSize<T>();
-            var bytes     = _plc!.ReadBytes(dt, db, byteOffset, length * elemBytes);
-            var result    = new T[length];
-            for (int i = 0; i < length; i++)
-                result[i] = BytesToValue<T>(bytes, i * elemBytes);
-            return result;
+            {
+                int bytesNeeded = (bitIdx + length + 7) / 8;
+                byte[] raw = new byte[bytesNeeded];
+                if (!_transport.ReadDB(db, byteOff, bytesNeeded, ref raw))
+                    throw new InvalidOperationException($"BlockRead 실패: {startDevice}");
+                var result = new T[length];
+                for (int i = 0; i < length; i++)
+                {
+                    int abs = bitIdx + i;
+                    result[i] = (T)(object)((raw[abs / 8] & (1 << (abs % 8))) != 0);
+                }
+                return result;
+            }
+            else
+            {
+                int elemSize = ElemSize<T>();
+                byte[] raw = new byte[length * elemSize];
+                if (!_transport.ReadDB(db, byteOff, raw.Length, ref raw))
+                    throw new InvalidOperationException($"BlockRead 실패: {startDevice}");
+                var result = new T[length];
+                for (int i = 0; i < length; i++)
+                    result[i] = BytesToValue<T>(raw, i * elemSize);
+                return result;
+            }
         }
     }
 
@@ -125,17 +119,35 @@ public sealed class S7PlcClient : IPlcClient
         lock (_sync)
         {
             ThrowIfDisposed(); EnsureConnected();
-            if (typeof(T) == typeof(bool)) { BlockWriteBool(startDevice, values); return; }
-            var (dt, db, byteOffset) = ParseBlockAddress(startDevice);
-            var elemBytes = ElemSize<T>();
-            var bytes     = new byte[values.Count * elemBytes];
-            for (int i = 0; i < values.Count; i++)
-                ValueToBytes(values[i], bytes, i * elemBytes);
-            _plc!.WriteBytes(dt, db, byteOffset, bytes);
+            ParseAddress(startDevice, out int db, out int byteOff, out int bitIdx);
+
+            if (typeof(T) == typeof(bool))
+            {
+                int bytesNeeded = (bitIdx + values.Count + 7) / 8;
+                byte[] raw = new byte[bytesNeeded];
+                _transport.ReadDB(db, byteOff, bytesNeeded, ref raw);
+                for (int i = 0; i < values.Count; i++)
+                {
+                    int abs = bitIdx + i;
+                    if ((bool)(object)values[i]) raw[abs / 8] |=  (byte)(1 << (abs % 8));
+                    else                         raw[abs / 8] &= (byte)~(1 << (abs % 8));
+                }
+                if (!_transport.WriteDB(db, byteOff, raw))
+                    throw new InvalidOperationException($"BlockWrite 실패: {startDevice}");
+            }
+            else
+            {
+                int elemSize = ElemSize<T>();
+                byte[] raw = new byte[values.Count * elemSize];
+                for (int i = 0; i < values.Count; i++)
+                    ValueToBytes(values[i], raw, i * elemSize);
+                if (!_transport.WriteDB(db, byteOff, raw))
+                    throw new InvalidOperationException($"BlockWrite 실패: {startDevice}");
+            }
         }
     }
 
-    // ── 랜덤 읽기 (ReadMultipleVars, 최대 19개/배치) ──────────────────
+    // ── 랜덤 읽기 (ReadMultiDB 배치) ─────────────────────────────────
 
     public IReadOnlyDictionary<string, T> RandomRead<T>(IReadOnlyList<string> devices) where T : unmanaged
     {
@@ -147,35 +159,40 @@ public sealed class S7PlcClient : IPlcClient
         {
             ThrowIfDisposed(); EnsureConnected();
 
-            var batchable  = new List<(string addr, S7Item item)>();
-            var fallback   = new List<string>();
-
-            foreach (var d in devices)
+            for (int start = 0; start < devices.Count; start += BatchSize)
             {
-                var item = TryBuildDataItem(d, typeof(T));
-                if (item != null) batchable.Add((d, item));
-                else              fallback.Add(d);
-            }
+                int end = Math.Min(start + BatchSize, devices.Count);
+                int chunkLen = end - start;
 
-            // 배치 읽기
-            for (int i = 0; i < batchable.Count; i += BatchSize)
-            {
-                var chunk = batchable.Skip(i).Take(BatchSize).ToList();
-                var items = chunk.Select(c => c.item).ToList();
-                try
+                var items   = new S7MultiItem[chunkLen];
+                var bitIdxs = new int[chunkLen];
+
+                for (int j = 0; j < chunkLen; j++)
                 {
-                    _plc!.ReadMultipleVars(items);
-                    for (int j = 0; j < chunk.Count; j++)
-                        result[chunk[j].addr] = ExtractValue<T>(items[j]);
+                    ParseAddress(devices[start + j], out int db, out int byteOff, out int bitIdx);
+                    bitIdxs[j] = bitIdx;
+                    items[j]   = new S7MultiItem
+                    {
+                        DB        = db,
+                        StartByte = byteOff,
+                        ByteCount = (typeof(T) == typeof(bool)) ? 1 : ElemSize<T>(),
+                    };
                 }
-                catch { foreach (var (addr, _) in chunk) fallback.Add(addr); }
-            }
 
-            // 폴백 단건 읽기
-            foreach (var d in fallback)
-            {
-                try { result[d] = ReadSingle<T>(d); }
-                catch { /* 실패한 주소는 결과에서 누락됨 */ }
+                bool ok = _transport.ReadMultiDB(items);
+
+                for (int j = 0; j < chunkLen; j++)
+                {
+                    string addr = devices[start + j];
+                    if (!ok || items[j].Data == null || items[j].Data.Length == 0)
+                    {
+                        try { result[addr] = ReadSingle<T>(addr); } catch { }
+                        continue;
+                    }
+                    result[addr] = (typeof(T) == typeof(bool))
+                        ? (T)(object)((items[j].Data[0] & (1 << bitIdxs[j])) != 0)
+                        : BytesToValue<T>(items[j].Data, 0);
+                }
             }
         }
         return result;
@@ -200,7 +217,8 @@ public sealed class S7PlcClient : IPlcClient
         lock (_sync)
         {
             if (_disposed) return;
-            _plc?.Close(); _plc = null; _disposed = true;
+            _transport.Dispose();
+            _disposed = true;
         }
         PlcLog.Info(nameof(S7PlcClient), $"[{Name}] disposed.");
     }
@@ -209,158 +227,109 @@ public sealed class S7PlcClient : IPlcClient
 
     private T ReadSingle<T>(string device) where T : unmanaged
     {
-        var raw = _plc!.Read(device);
-        if (raw == null) return default;
-        return ConvertRaw<T>(raw);
+        ParseAddress(device, out int db, out int byteOff, out int bitIdx);
+
+        if (typeof(T) == typeof(bool))
+        {
+            byte[] raw = new byte[1];
+            if (!_transport.ReadDB(db, byteOff, 1, ref raw))
+                throw new InvalidOperationException($"ReadDB 실패: {device}");
+            return (T)(object)((raw[0] & (1 << bitIdx)) != 0);
+        }
+
+        int byteCount = ElemSize<T>();
+        byte[] data = new byte[byteCount];
+        if (!_transport.ReadDB(db, byteOff, byteCount, ref data))
+            throw new InvalidOperationException($"ReadDB 실패: {device}");
+        return BytesToValue<T>(data, 0);
     }
 
     private void WriteSingle<T>(string device, T value) where T : unmanaged
     {
-        if (typeof(T) == typeof(bool))  { _plc!.Write(device, (bool)(object)value);              return; }
-        if (typeof(T) == typeof(float)) { _plc!.Write(device, (float)(object)value);             return; }
-        if (typeof(T) == typeof(int))   { _plc!.Write(device, (int)(object)value);               return; }
-        if (typeof(T) == typeof(uint))  { _plc!.Write(device, unchecked((int)(uint)(object)value)); return; }
-        if (typeof(T) == typeof(short)) { _plc!.Write(device, (short)(object)value);             return; }
-        if (typeof(T) == typeof(ushort)){ _plc!.Write(device, unchecked((short)(ushort)(object)value)); return; }
-        throw new NotSupportedException($"S7 Write<{typeof(T).Name}>는 지원하지 않습니다.");
-    }
+        ParseAddress(device, out int db, out int byteOff, out int bitIdx);
 
-    // ── 내부: Bool BlockRead/Write ────────────────────────────────────
+        if (typeof(T) == typeof(bool))
+        {
+            byte[] raw = new byte[1];
+            _transport.ReadDB(db, byteOff, 1, ref raw);
+            if ((bool)(object)value) raw[0] |=  (byte)(1 << bitIdx);
+            else                     raw[0] &= (byte)~(1 << bitIdx);
+            if (!_transport.WriteDB(db, byteOff, raw))
+                throw new InvalidOperationException($"WriteDB 실패: {device}");
+            return;
+        }
 
-    private bool[] BlockReadBool(string startDevice, ushort length)
-    {
-        var result = new bool[length];
-        for (int i = 0; i < length; i++)
-            result[i] = Convert.ToBoolean(_plc!.Read(IncrementBitAddr(startDevice, i)));
-        return result;
-    }
-
-    private void BlockWriteBool<T>(string startDevice, IReadOnlyList<T> values) where T : unmanaged
-    {
-        for (int i = 0; i < values.Count; i++)
-            _plc!.Write(IncrementBitAddr(startDevice, i), (bool)(object)values[i]);
+        int byteCount = ElemSize<T>();
+        byte[] data = new byte[byteCount];
+        ValueToBytes(value, data, 0);
+        if (!_transport.WriteDB(db, byteOff, data))
+            throw new InvalidOperationException($"WriteDB 실패: {device}");
     }
 
     // ── 내부: 주소 파싱 ───────────────────────────────────────────────
 
-    // "DB1.DBW10" → (DataBlock, db=1, byteOffset=10)
-    // "MW10"      → (Memory, db=0, byteOffset=10)
-    private static (S7Net.DataType dt, int db, int byteOffset) ParseBlockAddress(string device)
+    // "DB1.DBX0.0" → db=1, byteOff=0, bitIdx=0
+    // "DB1.DBW10"  → db=1, byteOff=10, bitIdx=0
+    // "DB1.DBD4"   → db=1, byteOff=4,  bitIdx=0
+    // "DB1.DBB5"   → db=1, byteOff=5,  bitIdx=0
+    private static void ParseAddress(string device, out int db, out int byteOff, out int bitIdx)
     {
         var s = device.Trim().ToUpperInvariant();
 
-        var dbm = Regex.Match(s, @"^DB(\d+)\.DB([BWD])(\d+)$");
-        if (dbm.Success)
-            return (S7Net.DataType.DataBlock, int.Parse(dbm.Groups[1].Value), int.Parse(dbm.Groups[3].Value));
-
-        var mm = Regex.Match(s, @"^M([WD])(\d+)$");
-        if (mm.Success) return (S7Net.DataType.Memory, 0, int.Parse(mm.Groups[2].Value));
-
-        var im = Regex.Match(s, @"^I([WD])(\d+)$");
-        if (im.Success) return (S7Net.DataType.Input,  0, int.Parse(im.Groups[2].Value));
-
-        var qm = Regex.Match(s, @"^Q([WD])(\d+)$");
-        if (qm.Success) return (S7Net.DataType.Output, 0, int.Parse(qm.Groups[2].Value));
-
-        throw new ArgumentException("BlockRead/Write를 지원하지 않는 S7 주소 형식입니다: " + device);
-    }
-
-    // S7 배치 읽기용 DataItem 생성. Bit 타입 및 지원 불가 주소는 null 반환
-    private static S7Item? TryBuildDataItem(string device, Type valueType)
-    {
-        var s = device.Trim().ToUpperInvariant();
-
-        var dbm = Regex.Match(s, @"^DB(\d+)\.DB([BWDX])(\d+)(?:\.(\d+))?$");
-        if (dbm.Success)
+        var mBit = Regex.Match(s, @"^DB(\d+)\.DBX(\d+)\.(\d+)$");
+        if (mBit.Success)
         {
-            var kind = dbm.Groups[2].Value;
-            if (kind == "X") return null; // Bit → 개별 폴백
-
-            return new S7Item
-            {
-                DataType     = S7Net.DataType.DataBlock,
-                DB           = int.Parse(dbm.Groups[1].Value),
-                StartByteAdr = int.Parse(dbm.Groups[3].Value),
-                VarType      = kind == "D" ? S7Net.VarType.DWord : S7Net.VarType.Word,
-                Count        = 1,
-            };
+            db      = int.Parse(mBit.Groups[1].Value);
+            byteOff = int.Parse(mBit.Groups[2].Value);
+            bitIdx  = int.Parse(mBit.Groups[3].Value);
+            return;
         }
 
-        var mm = Regex.Match(s, @"^M([WD])(\d+)$");
-        if (mm.Success)
-            return new S7Item
-            {
-                DataType     = S7Net.DataType.Memory,
-                StartByteAdr = int.Parse(mm.Groups[2].Value),
-                VarType      = mm.Groups[1].Value == "D" ? S7Net.VarType.DWord : S7Net.VarType.Word,
-                Count        = 1,
-            };
-
-        return null; // 비트, 입출력 등 → 개별 폴백
-    }
-
-    // ── 내부: 타입 변환 ───────────────────────────────────────────────
-
-    // S7Net.Plc.Read() 반환값(object) → T
-    private static T ConvertRaw<T>(object raw) where T : unmanaged
-    {
-        if (typeof(T) == typeof(bool))   return (T)(object)Convert.ToBoolean(raw);
-        if (typeof(T) == typeof(float))
+        var mOther = Regex.Match(s, @"^DB(\d+)\.DB[BWD](\d+)$");
+        if (mOther.Success)
         {
-            var bits = Convert.ToUInt32(raw);
-            return (T)(object)BitConverter.Int32BitsToSingle(unchecked((int)bits));
+            db      = int.Parse(mOther.Groups[1].Value);
+            byteOff = int.Parse(mOther.Groups[2].Value);
+            bitIdx  = 0;
+            return;
         }
-        if (typeof(T) == typeof(int))    return (T)(object)unchecked((int)Convert.ToUInt32(raw));
-        if (typeof(T) == typeof(uint))   return (T)(object)Convert.ToUInt32(raw);
-        if (typeof(T) == typeof(short))  return (T)(object)unchecked((short)Convert.ToUInt16(raw));
-        if (typeof(T) == typeof(ushort)) return (T)(object)Convert.ToUInt16(raw);
-        throw new NotSupportedException($"S7 Read<{typeof(T).Name}>는 지원하지 않습니다.");
+
+        throw new ArgumentException(
+            $"지원하지 않는 S7 주소 형식입니다: '{device}'. " +
+            "지원 형식: DB{n}.DBX{byte}.{bit}, DB{n}.DBW{byte}, DB{n}.DBD{byte}, DB{n}.DBB{byte}");
     }
 
-    // DataItem.Value → T (ReadMultipleVars 후)
-    private static T ExtractValue<T>(S7Item item) where T : unmanaged
-    {
-        var val = item.Value;
-        if (val == null) return default;
-        if (typeof(T) == typeof(float))
-        {
-            var bits = Convert.ToUInt32(val);
-            return (T)(object)BitConverter.Int32BitsToSingle(unchecked((int)bits));
-        }
-        return ConvertRaw<T>(val);
-    }
+    // ── 내부: 타입 변환 (Siemens Big-Endian) ─────────────────────────
 
-    // S7 Big-Endian 바이트 배열 → T
     private static T BytesToValue<T>(byte[] bytes, int offset) where T : unmanaged
     {
+        if (typeof(T) == typeof(bool))   return (T)(object)(bytes[offset] != 0);
+        if (typeof(T) == typeof(byte))   return (T)(object)bytes[offset];
         if (typeof(T) == typeof(short))
-        {
-            var v = (ushort)((bytes[offset] << 8) | bytes[offset + 1]);
-            return (T)(object)unchecked((short)v);
-        }
+            return (T)(object)unchecked((short)((bytes[offset] << 8) | bytes[offset + 1]));
         if (typeof(T) == typeof(ushort))
             return (T)(object)(ushort)((bytes[offset] << 8) | bytes[offset + 1]);
         if (typeof(T) == typeof(int) || typeof(T) == typeof(uint) || typeof(T) == typeof(float))
         {
             var bits = (uint)((bytes[offset] << 24) | (bytes[offset + 1] << 16)
                              | (bytes[offset + 2] << 8) | bytes[offset + 3]);
-            if (typeof(T) == typeof(int))   return (T)(object)unchecked((int)bits);
-            if (typeof(T) == typeof(uint))  return (T)(object)bits;
+            if (typeof(T) == typeof(int))  return (T)(object)unchecked((int)bits);
+            if (typeof(T) == typeof(uint)) return (T)(object)bits;
             return (T)(object)BitConverter.Int32BitsToSingle(unchecked((int)bits));
         }
-        throw new NotSupportedException($"S7 BlockRead<{typeof(T).Name}>는 지원하지 않습니다.");
+        throw new NotSupportedException($"S7 Read<{typeof(T).Name}>는 지원하지 않습니다.");
     }
 
-    // T → S7 Big-Endian 바이트 배열
     private static void ValueToBytes<T>(T value, byte[] buffer, int offset) where T : unmanaged
     {
+        if (typeof(T) == typeof(byte))
+            { buffer[offset] = (byte)(object)value; return; }
         if (typeof(T) == typeof(short) || typeof(T) == typeof(ushort))
         {
             var v = typeof(T) == typeof(short)
                 ? unchecked((ushort)(short)(object)value)
                 : (ushort)(object)value;
-            buffer[offset]     = (byte)(v >> 8);
-            buffer[offset + 1] = (byte)(v & 0xFF);
+            buffer[offset] = (byte)(v >> 8); buffer[offset + 1] = (byte)(v & 0xFF);
             return;
         }
         if (typeof(T) == typeof(int) || typeof(T) == typeof(uint) || typeof(T) == typeof(float))
@@ -374,41 +343,18 @@ public sealed class S7PlcClient : IPlcClient
             buffer[offset + 3] = (byte)(bits & 0xFF);
             return;
         }
-        throw new NotSupportedException($"S7 BlockWrite<{typeof(T).Name}>는 지원하지 않습니다.");
+        throw new NotSupportedException($"S7 Write<{typeof(T).Name}>는 지원하지 않습니다.");
     }
 
     private static int ElemSize<T>() where T : unmanaged
     {
+        if (typeof(T) == typeof(bool) || typeof(T) == typeof(byte)) return 1;
         if (typeof(T) == typeof(short) || typeof(T) == typeof(ushort)) return 2;
-        if (typeof(T) == typeof(int)   || typeof(T) == typeof(uint) || typeof(T) == typeof(float)) return 4;
+        if (typeof(T) == typeof(int) || typeof(T) == typeof(uint) || typeof(T) == typeof(float)) return 4;
         return 2;
     }
 
-    // Bit 주소 증가: "DB1.DBX10.3" + 5 → "DB1.DBX10.8" → "DB1.DBX11.0"
-    private static string IncrementBitAddr(string baseAddr, int offset)
-    {
-        var s = baseAddr.Trim();
-
-        var dbm = Regex.Match(s, @"^(DB\d+\.DBX)(\d+)\.(\d+)$", RegexOptions.IgnoreCase);
-        if (dbm.Success)
-        {
-            var byteNo = int.Parse(dbm.Groups[2].Value);
-            var bitNo  = int.Parse(dbm.Groups[3].Value) + offset;
-            return $"{dbm.Groups[1].Value}{byteNo + bitNo / 8}.{bitNo % 8}";
-        }
-
-        var mm = Regex.Match(s, @"^([MIQQ])(\d+)\.(\d+)$", RegexOptions.IgnoreCase);
-        if (mm.Success)
-        {
-            var byteNo = int.Parse(mm.Groups[2].Value);
-            var bitNo  = int.Parse(mm.Groups[3].Value) + offset;
-            return $"{mm.Groups[1].Value}{byteNo + bitNo / 8}.{bitNo % 8}";
-        }
-
-        throw new ArgumentException("S7 Bit 주소 증가 불가: " + baseAddr);
-    }
-
     private void EnsureConnected() { if (!IsConnected) throw new InvalidOperationException("S7 PLC가 연결되지 않았습니다."); }
-    private void ThrowIfDisposed() { if (_disposed)    throw new ObjectDisposedException(nameof(S7PlcClient)); }
+    private void ThrowIfDisposed() { if (_disposed) throw new ObjectDisposedException(nameof(S7PlcClient)); }
     private static void ValidateDevice(string d) { if (string.IsNullOrWhiteSpace(d)) throw new ArgumentException("디바이스 주소가 비어 있습니다."); }
 }

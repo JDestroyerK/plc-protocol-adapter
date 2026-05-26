@@ -8,10 +8,9 @@ namespace PlcLib.Factories;
 /// PlcClientOpt 설정으로부터 IPlcClient 인스턴스를 생성하는 팩토리입니다.
 ///
 /// 지원 Provider (대소문자 무관):
-///   "McpX"        → McpXPlcClient  (미쯔비시 MC Protocol, McpXOpt 필요)
+///   "McpX"        → McpXPlcClient   (미쯔비시 MC Protocol, McpXOpt 필요)
 ///   "MxComponent" → MxCompPlcClient (미쯔비시 COM, MxCompOpt 필요)
-///   "S7"          → S7PlcClient    (지멘스 S7, S7Opt 필요)
-///   "Modbus"      → ModbusPlcClient (Modbus TCP/RTU, ModbusOpt 필요)
+///   "S7"          → S7PlcClient     (지멘스 S7, S7Opt 필요; ComType=Raw|Sharp7)
 ///   "Virtual"     → VirtualPlcClient (테스트/시뮬레이션)
 ///   기타          → PlcClientOpt.ImplType으로 리플렉션 생성 시도
 /// </summary>
@@ -42,11 +41,6 @@ public static class PlcClientFactory
                 if (opt.S7 == null)
                     throw new InvalidOperationException($"[{opt.Name}] Provider=S7이지만 S7Opt가 설정되지 않았습니다.");
                 return new S7PlcClient(opt.Name, opt.S7);
-
-            case "MODBUS":
-                if (opt.Modbus == null)
-                    throw new InvalidOperationException($"[{opt.Name}] Provider=Modbus이지만 ModbusOpt가 설정되지 않았습니다.");
-                return new ModbusPlcClient(opt.Name, opt.Modbus);
 
             case "VIRTUAL":
                 return new VirtualPlcClient(opt.Name);
